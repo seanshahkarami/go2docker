@@ -1,41 +1,51 @@
 #!/bin/bash -e
 
 fatal() {
-    echo fatal: $*
+    echo "fatal:" $*
     exit 1
 }
 
 assert_nonempty() {
-    if test -z "$1"; then
-        fatal "$2"
+    local val="${1}"
+    local msg="${2}"
+    if test -z "${val}"; then
+        fatal "${msg}"
     fi
 }
 
-scan_go_mod_file() {
+print_go_project_vars() {
+    local godir="${1}"
     awk '
 /^module/ {printf "gomodule=%s\n", $2}
 /^go/ {printf "goversion=%s\n", $2}
-' "$1"
+' "${godir}/go.mod"
 }
 
-godir="$1"
-image="$2"
-assert_nonempty "$godir" "must provide path to go directory"
-assert_nonempty "$image" "must provide docker image name for build"
+godir="${1}"
+assert_nonempty "${godir}" "must provide path to go directory"
 
-eval $(scan_go_mod_file "${godir}/go.mod")
-assert_nonempty "$gomodule" "could not determine go module name"
-assert_nonempty "$goversion" "could not determine go version"
+image="${2}"
+assert_nonempty "${image}" "must provide docker image name for build"
 
-cd "$godir"
+eval $(print_go_project_vars "${godir}")
+assert_nonempty "${gomodule}" "could not determine go module name"
+assert_nonempty "${goversion}" "could not determine go version"
+
+cd "${godir}"
 
 # we are paranoid about silently overwriting a user created Dockerfile
 if test -e Dockerfile; then
     fatal "Dockerfile already exists in ${godir}. stopping! please remove if this is an accident."
 fi
 
+# add cleanup hook
+cleanup() {
+    rm -f Dockerfile
+}
+trap cleanup EXIT ERR
+
 # generate Dockerfile
-cat > Dockerfile <<EOF
+cat > Dockerfile <<DOCKERFILE
 FROM golang:${goversion} AS builder
 WORKDIR /build
 COPY . .
@@ -44,11 +54,8 @@ RUN CGO_ENABLED=0 go build
 FROM scratch
 COPY --from=builder /build/${gomodule} /app
 ENTRYPOINT [ "/app" ]
-EOF
-
-# add clean up hook
-trap "rm -f Dockerfile" EXIT
+DOCKERFILE
 
 # build Docker image
 # TODO add buildx multiarch support
-docker build -t "$2" .
+docker build -t "${image}" .
