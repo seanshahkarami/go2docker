@@ -46,9 +46,9 @@ COPY --from=builder /build/${gomodule} /usr/bin/${gomodule}
 ENTRYPOINT [ "/usr/bin/${gomodule}" ]
 EOF
 
+# add clean up hook
+trap "rm -f Dockerfile" EXIT
+
 # build Docker image
 # TODO add buildx multiarch support
 docker build -t "$2" .
-
-# clean up
-rm Dockerfile
